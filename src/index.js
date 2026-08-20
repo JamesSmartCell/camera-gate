@@ -57,15 +57,15 @@ function readAuthFields(req) {
 }
 
 function streamPaths(token) {
-  if (config.streamMode === 'hls') {
+  if (config.streamMode === 'mjpeg') {
     return {
-      mode: 'hls',
-      streamUrl: publicUrl(`/hls/${token}/index.m3u8`),
+      mode: 'mjpeg',
+      streamUrl: publicUrl(`/live/${token}`),
     }
   }
   return {
-    mode: 'mjpeg',
-    streamUrl: publicUrl(`/live/${token}`),
+    mode: 'hls',
+    streamUrl: publicUrl(`/hls/${token}/index.m3u8`),
   }
 }
 
@@ -88,6 +88,19 @@ app.get('/lan', requireLan, sendLanPage)
 app.get('/lan/live', requireLan, (req, res) => {
   req.cameraToken = 'lan'
   proxyMjpeg(req, res)
+})
+app.get('/lan/index.m3u8', requireLan, (req, res) => {
+  req.cameraToken = 'lan'
+  req.params.file = 'index.m3u8'
+  serveHls(req, res).catch((err) => {
+    if (!res.headersSent) res.status(500).type('text/plain').send(String(err))
+  })
+})
+app.get('/lan/:file', requireLan, (req, res) => {
+  req.cameraToken = 'lan'
+  serveHls(req, res).catch((err) => {
+    if (!res.headersSent) res.status(500).type('text/plain').send(String(err))
+  })
 })
 
 app.get('/health', (_req, res) => {

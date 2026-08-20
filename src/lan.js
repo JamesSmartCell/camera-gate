@@ -9,47 +9,28 @@ const LAN_PAGE = `<!DOCTYPE html>
     main { max-width: 960px; margin: 0 auto; padding: 24px; }
     h1 { font-size: 1.25rem; margin: 0 0 8px; }
     p { color: #94a3b8; font-size: 0.9rem; }
-    img { width: 100%; height: auto; background: #000; border-radius: 12px; border: 1px solid #334155; }
+    video { width: 100%; height: auto; background: #000; border-radius: 12px; border: 1px solid #334155; }
   </style>
 </head>
 <body>
   <main>
     <h1>Garage camera — LAN only</h1>
-    <p>This page is served on the local network and is not passkey-gated (WebAuthn cannot run on a raw IP). Remote viewing is <code>https://wallet.percolate.one</code> after the NFT check.</p>
-    <img id="cam" alt="LAN camera" />
+    <p>H.264 / HLS preview on the local network. Remote viewing is <code>https://wallet.percolate.one</code> after the NFT check.</p>
+    <video id="cam" autoplay muted playsinline controls></video>
   </main>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.13/dist/hls.min.js"></script>
   <script>
-    (async function () {
-      const img = document.getElementById('cam')
-      const res = await fetch('/lan/live', { cache: 'no-store' })
-      if (!res.ok || !res.body) return
-      const reader = res.body.getReader()
-      let buf = new Uint8Array(0)
-      let url = ''
-      const concat = (a, b) => {
-        const o = new Uint8Array(a.length + b.length)
-        o.set(a, 0); o.set(b, a.length); return o
-      }
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buf = concat(buf, value)
-        let start = -1
-        for (let i = 0; i < buf.length - 1; i++) if (buf[i] === 255 && buf[i+1] === 216) { start = i; break }
-        if (start < 0) continue
-        for (let i = start + 2; i < buf.length - 1; i++) {
-          if (buf[i] === 255 && buf[i+1] === 217) {
-            const blob = new Blob([buf.subarray(start, i + 2)], { type: 'image/jpeg' })
-            const next = URL.createObjectURL(blob)
-            img.src = next
-            if (url) URL.revokeObjectURL(url)
-            url = next
-            buf = buf.subarray(i + 2)
-            break
-          }
-        }
-      }
-    })()
+    const video = document.getElementById('cam')
+    const src = '/lan/index.m3u8'
+    if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = src
+    } else if (window.Hls && Hls.isSupported()) {
+      const hls = new Hls({ lowLatencyMode: true })
+      hls.loadSource(src)
+      hls.attachMedia(video)
+    } else {
+      document.querySelector('p').textContent = 'This browser cannot play HLS.'
+    }
   </script>
 </body>
 </html>`

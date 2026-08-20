@@ -4,7 +4,7 @@ import http from 'node:http'
 import path from 'node:path'
 import { config } from './config.js'
 import { getSession, touchSession } from './sessions.js'
-import { attachOnDemandMjpeg } from './ffmpeg-source.js'
+import { attachOnDemandMjpeg, touchHls, waitForHlsPlaylist } from './ffmpeg-source.js'
 
 function deny(res, status, message) {
   res.status(status).type('text/plain').send(message)
@@ -100,23 +100,26 @@ function safeHlsFile(name) {
   return path.join(config.hlsDir, name)
 }
 
-function rewritePlaylist(text, token) {
+function rewritePlaylist(text) {
   return text
     .split(/\r?\n/)
     .map((line) => {
       if (!line || line.startsWith('#')) return line
-      const file = path.posix.basename(line.split('?')[0])
-      return `/hls/${token}/${file}`
+      return path.posix.basename(line.split('?')[0])
     })
     .join('\n')
 }
 
 export async function serveHls(req, res) {
-  if (!config.hlsDir) {
-    deny(res, 500, 'error:hls_not_configured')
-    return
-  }
+  touchHls()
   const fileName = req.params.file || 'index.m3u8'
+  if (fileName.endsWith('.m3u8')) {
+    const ready = await waitForHlsPlaylist()
+    if (!ready) {
+      deny(res, 503, 'error:hls_starting')
+      return
+    }
+  }
   const full = safeHlsFile(fileName)
   if (!full || !existsSync(full)) {
     deny(res, 404, 'error:segment_missing')
@@ -130,7 +133,7 @@ export async function serveHls(req, res) {
       'Content-Type': 'application/vnd.apple.mpegurl',
       'Cache-Control': 'no-store',
     })
-    res.send(rewritePlaylist(text, req.cameraToken))
+    res.send(rewritePlaylist(text))
     return
   }
 

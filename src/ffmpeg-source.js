@@ -1,16 +1,56 @@
 import { spawn } from 'node:child_process'
+import { existsSync, mkdirSync, rmSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
+import path from 'node:path'
 import { config } from './config.js'
 
 const viewers = new Set()
 let ffmpeg = null
+let ffmpegKind = null
 let idleTimer = null
+let hlsLastAccess = 0
 
 export function ffmpegStatus() {
   return {
     running: Boolean(ffmpeg),
+    kind: ffmpegKind,
     viewers: viewers.size,
     device: config.cameraDevice,
+    hlsDir: config.hlsDir,
   }
+}
+
+function ensureHlsDir() {
+  mkdirSync(config.hlsDir, { recursive: true })
+}
+
+function videoFilters() {
+  const filters = []
+  if (config.cameraVflip) filters.push('vflip')
+  if (config.cameraHflip) filters.push('hflip')
+  return filters
+}
+
+function v4l2InputArgs() {
+  return [
+    '-hide_banner',
+    '-loglevel',
+    'error',
+    '-fflags',
+    'nobuffer',
+    '-flags',
+    'low_delay',
+    '-f',
+    'v4l2',
+    '-input_format',
+    config.cameraInputFormat,
+    '-video_size',
+    config.cameraSize,
+    '-framerate',
+    String(config.cameraFps),
+    '-i',
+    config.cameraDevice,
+  ]
 }
 
 function stopFfmpeg() {
@@ -19,6 +59,7 @@ function stopFfmpeg() {
   if (!ffmpeg) return
   const child = ffmpeg
   ffmpeg = null
+  ffmpegKind = null
   child.stdout?.removeAllListeners('data')
   try {
     child.kill('SIGTERM')
@@ -37,32 +78,49 @@ function stopFfmpeg() {
   console.log('[ffmpeg] stopped')
 }
 
-function startFfmpeg() {
-  if (ffmpeg) return
+function attachChild(child, kind) {
+  ffmpeg = child
+  ffmpegKind = kind
+  child.stderr.on('data', (buf) => {
+    const line = buf.toString().trim()
+    if (line) console.warn('[ffmpeg]', line)
+  })
+  child.on('error', (err) => {
+    console.warn('[ffmpeg] spawn failed', err.message)
+    if (ffmpeg === child) {
+      ffmpeg = null
+      ffmpegKind = null
+    }
+    for (const res of viewers) {
+      if (!res.headersSent) {
+        res.status(502).type('text/plain').send('error:camera_unavailable')
+      } else {
+        res.end()
+      }
+    }
+    viewers.clear()
+  })
+  child.on('exit', (code, signal) => {
+    if (ffmpeg === child) {
+      ffmpeg = null
+      ffmpegKind = null
+    }
+    console.log('[ffmpeg] exit', kind, code, signal || '')
+    for (const res of viewers) {
+      res.end()
+    }
+    viewers.clear()
+  })
+}
 
-  const filters = []
-  if (config.cameraVflip) filters.push('vflip')
-  if (config.cameraHflip) filters.push('hflip')
+function startMjpegFfmpeg() {
+  if (ffmpeg && ffmpegKind === 'mjpeg') return
+  if (ffmpeg) stopFfmpeg()
+
+  const filters = videoFilters()
   const mustEncode = config.cameraEncode || filters.length > 0
-
   const args = [
-    '-hide_banner',
-    '-loglevel',
-    'error',
-    '-fflags',
-    'nobuffer',
-    '-flags',
-    'low_delay',
-    '-f',
-    'v4l2',
-    '-input_format',
-    config.cameraInputFormat,
-    '-video_size',
-    config.cameraSize,
-    '-framerate',
-    String(config.cameraFps),
-    '-i',
-    config.cameraDevice,
+    ...v4l2InputArgs(),
     ...(filters.length ? ['-vf', filters.join(',')] : []),
     ...(mustEncode
       ? ['-c:v', 'mjpeg', '-q:v', String(config.cameraQuality)]
@@ -74,21 +132,9 @@ function startFfmpeg() {
     'pipe:1',
   ]
 
-  console.log(
-    '[ffmpeg] start',
-    config.cameraDevice,
-    config.cameraSize,
-    filters.length ? `vf=${filters.join(',')}` : 'no-flip'
-  )
-  const child = spawn(config.ffmpegBin, args, {
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
-  ffmpeg = child
-
-  child.stderr.on('data', (buf) => {
-    const line = buf.toString().trim()
-    if (line) console.warn('[ffmpeg]', line)
-  })
+  console.log('[ffmpeg] start mjpeg', config.cameraDevice, config.cameraSize)
+  const child = spawn(config.ffmpegBin, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+  attachChild(child, 'mjpeg')
 
   let jpegBuf = Buffer.alloc(0)
   child.stdout.on('data', (chunk) => {
@@ -117,28 +163,93 @@ function startFfmpeg() {
       jpegBuf = jpegBuf.subarray(-1024 * 1024)
     }
   })
+}
 
-  child.on('error', (err) => {
-    console.warn('[ffmpeg] spawn failed', err.message)
-    if (ffmpeg === child) ffmpeg = null
-    for (const res of viewers) {
-      if (!res.headersSent) {
-        res.status(502).type('text/plain').send('error:camera_unavailable')
-      } else {
-        res.end()
+export function startHlsFfmpeg() {
+  if (ffmpeg && ffmpegKind === 'hls') return
+  if (ffmpeg) stopFfmpeg()
+
+  ensureHlsDir()
+  try {
+    rmSync(path.join(config.hlsDir, 'index.m3u8'), { force: true })
+  } catch {
+    // ignore
+  }
+
+  const filters = videoFilters()
+  const gop = Math.max(2, Number(config.cameraFps) || 15)
+  const args = [
+    ...v4l2InputArgs(),
+    ...(filters.length ? ['-vf', filters.join(',')] : []),
+    '-c:v',
+    config.hlsEncoder,
+    '-preset',
+    config.hlsPreset,
+    '-tune',
+    'zerolatency',
+    '-pix_fmt',
+    'yuv420p',
+    '-profile:v',
+    'baseline',
+    '-level',
+    '3.1',
+    '-g',
+    String(gop),
+    '-keyint_min',
+    String(gop),
+    '-b:v',
+    config.hlsBitrate,
+    '-maxrate',
+    config.hlsBitrate,
+    '-bufsize',
+    '1600k',
+    '-an',
+    '-f',
+    'hls',
+    '-hls_time',
+    '1',
+    '-hls_list_size',
+    '6',
+    '-hls_flags',
+    'delete_segments+append_list+independent_segments',
+    '-hls_segment_filename',
+    path.join(config.hlsDir, 'seg%03d.ts'),
+    path.join(config.hlsDir, 'index.m3u8'),
+  ]
+
+  console.log('[ffmpeg] start hls', config.cameraDevice, config.cameraSize, config.hlsEncoder)
+  const child = spawn(config.ffmpegBin, args, { stdio: ['ignore', 'ignore', 'pipe'] })
+  attachChild(child, 'hls')
+}
+
+export function touchHls() {
+  hlsLastAccess = Date.now()
+  startHlsFfmpeg()
+  clearTimeout(idleTimer)
+  idleTimer = setTimeout(() => {
+    if (viewers.size > 0) return
+    if (Date.now() - hlsLastAccess < config.ffmpegIdleStopMs) return
+    stopFfmpeg()
+  }, config.ffmpegIdleStopMs)
+  idleTimer.unref()
+}
+
+export async function waitForHlsPlaylist(timeoutMs = 15000) {
+  touchHls()
+  const file = path.join(config.hlsDir, 'index.m3u8')
+  const started = Date.now()
+  while (Date.now() - started < timeoutMs) {
+    if (existsSync(file)) {
+      try {
+        const text = await readFile(file, 'utf8')
+        if (text.includes('.ts') || text.includes('#EXTINF')) return true
+      } catch {
+        // still writing
       }
     }
-    viewers.clear()
-  })
-
-  child.on('exit', (code, signal) => {
-    if (ffmpeg === child) ffmpeg = null
-    console.log('[ffmpeg] exit', code, signal || '')
-    for (const res of viewers) {
-      res.end()
-    }
-    viewers.clear()
-  })
+    await new Promise((r) => setTimeout(r, 300))
+  }
+  return existsSync(file)
 }
 
 function releaseViewer(res) {
@@ -152,7 +263,7 @@ function releaseViewer(res) {
 export function attachOnDemandMjpeg(req, res) {
   clearTimeout(idleTimer)
   idleTimer = null
-  startFfmpeg()
+  startMjpegFfmpeg()
 
   res.status(200)
   res.set({

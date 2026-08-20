@@ -1,3 +1,6 @@
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 function resolveCameraSourceUrl(raw) {
   const value = String(raw || '').trim()
   if (!value) return ''
@@ -40,7 +43,7 @@ export const config = {
     process.env.ADMIN_ADDRS ||
       '0xC067A53c91258ba513059919E03B81CF93f57Ac7,0x7e4b1da13c4a2a73fd05e928a6ed81b0a5d3007b'
   ),
-  streamMode: (process.env.STREAM_MODE || 'mjpeg').toLowerCase() === 'hls' ? 'hls' : 'mjpeg',
+  streamMode: (process.env.STREAM_MODE || 'hls').toLowerCase() === 'mjpeg' ? 'mjpeg' : 'hls',
   // If set, proxy an already-running local source. Empty / leftover :8090 URLs use on-demand ffmpeg.
   cameraSourceUrl: resolveCameraSourceUrl(process.env.CAMERA_SOURCE_URL),
   cameraDevice: process.env.CAMERA_DEVICE || '/dev/video0',
@@ -52,8 +55,11 @@ export const config = {
   cameraVflip: envFlag(process.env.CAMERA_VFLIP, true),
   cameraHflip: envFlag(process.env.CAMERA_HFLIP, false),
   ffmpegBin: process.env.FFMPEG_BIN || 'ffmpeg',
-  ffmpegIdleStopMs: Number(process.env.FFMPEG_IDLE_STOP_MS || 2000),
-  hlsDir: process.env.HLS_DIR || '',
+  ffmpegIdleStopMs: Number(process.env.FFMPEG_IDLE_STOP_MS || 8000),
+  hlsDir: process.env.HLS_DIR || join(tmpdir(), 'garage-hls'),
+  hlsBitrate: process.env.HLS_BITRATE || '800k',
+  hlsPreset: process.env.HLS_PRESET || 'ultrafast',
+  hlsEncoder: process.env.HLS_ENCODER || 'libx264',
   streamTtlMs: Number(process.env.STREAM_TTL_SEC || 90) * 1000,
   maxSessionMs: Number(process.env.MAX_SESSION_SEC || 600) * 1000,
 }
