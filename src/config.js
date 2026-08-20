@@ -1,3 +1,13 @@
+function resolveCameraSourceUrl(raw) {
+  const value = String(raw || '').trim()
+  if (!value) return ''
+  const lower = value.toLowerCase()
+  if (lower === '0' || lower === 'off' || lower === 'false') return ''
+  // leftover from the old always-on listen command — that process exits on disconnect
+  if (lower.includes('127.0.0.1:8090') || lower.includes('localhost:8090')) return ''
+  return value
+}
+
 function csv(value) {
   return String(value || '')
     .split(',')
@@ -24,8 +34,8 @@ export const config = {
       '0xC067A53c91258ba513059919E03B81CF93f57Ac7,0x7e4b1da13c4a2a73fd05e928a6ed81b0a5d3007b'
   ),
   streamMode: (process.env.STREAM_MODE || 'mjpeg').toLowerCase() === 'hls' ? 'hls' : 'mjpeg',
-  // If set, proxy an already-running local source. If empty, spawn ffmpeg only while someone is watching.
-  cameraSourceUrl: String(process.env.CAMERA_SOURCE_URL || '').trim(),
+  // If set, proxy an already-running local source. Empty / leftover :8090 URLs use on-demand ffmpeg.
+  cameraSourceUrl: resolveCameraSourceUrl(process.env.CAMERA_SOURCE_URL),
   cameraDevice: process.env.CAMERA_DEVICE || '/dev/video0',
   cameraInputFormat: process.env.CAMERA_INPUT_FORMAT || 'mjpeg',
   cameraSize: process.env.CAMERA_SIZE || '1280x720',

@@ -58,7 +58,9 @@ function startFfmpeg() {
       ? ['-c:v', 'mjpeg', '-q:v', String(config.cameraQuality)]
       : ['-c:v', 'copy']),
     '-f',
-    'mpjpeg',
+    'image2pipe',
+    '-vcodec',
+    'mjpeg',
     'pipe:1',
   ]
 
@@ -77,6 +79,7 @@ function startFfmpeg() {
     for (const res of viewers) {
       try {
         res.write(chunk)
+        if (typeof res.flush === 'function') res.flush()
       } catch {
         viewers.delete(res)
       }
@@ -126,6 +129,8 @@ export function attachOnDemandMjpeg(req, res) {
     Pragma: 'no-cache',
     'X-Accel-Buffering': 'no',
   })
+  res.socket?.setNoDelay(true)
+  if (typeof res.flushHeaders === 'function') res.flushHeaders()
 
   viewers.add(res)
 

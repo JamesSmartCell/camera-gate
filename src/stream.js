@@ -82,9 +82,13 @@ export function proxyMjpeg(req, res) {
     }
   )
 
-  upstream.on('error', () => {
-    if (!res.headersSent) deny(res, 502, 'error:camera_unavailable')
-    else res.end()
+  upstream.on('error', (err) => {
+    console.warn('[stream] CAMERA_SOURCE_URL failed, using on-demand ffmpeg:', err.message)
+    if (res.headersSent) {
+      res.end()
+      return
+    }
+    attachOnDemandMjpeg(req, res)
   })
   req.on('close', () => upstream.destroy())
   upstream.end()

@@ -173,5 +173,10 @@ app.use((_req, res) => {
 
 app.listen(config.port, config.host, () => {
   console.log(`camera-gate listening on ${config.host}:${config.port} mode=${config.streamMode}`)
+  console.log(
+    config.cameraSourceUrl
+      ? `source: proxy ${config.cameraSourceUrl}`
+      : `source: on-demand ffmpeg ${config.cameraDevice}`
+  )
   console.log(`challenge: ${currentChallenge}`)
 })
