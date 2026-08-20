@@ -44,6 +44,10 @@ function startFfmpeg() {
     '-hide_banner',
     '-loglevel',
     'error',
+    '-fflags',
+    'nobuffer',
+    '-flags',
+    'low_delay',
     '-f',
     'v4l2',
     '-input_format',
@@ -75,14 +79,31 @@ function startFfmpeg() {
     if (line) console.warn('[ffmpeg]', line)
   })
 
+  let jpegBuf = Buffer.alloc(0)
   child.stdout.on('data', (chunk) => {
-    for (const res of viewers) {
-      try {
-        res.write(chunk)
-        if (typeof res.flush === 'function') res.flush()
-      } catch {
-        viewers.delete(res)
+    jpegBuf = Buffer.concat([jpegBuf, chunk])
+    while (true) {
+      const start = jpegBuf.indexOf(Buffer.from([0xff, 0xd8]))
+      if (start < 0) {
+        jpegBuf = Buffer.alloc(0)
+        break
       }
+      if (start > 0) jpegBuf = jpegBuf.subarray(start)
+      const end = jpegBuf.indexOf(Buffer.from([0xff, 0xd9]), 2)
+      if (end < 0) break
+      const frame = jpegBuf.subarray(0, end + 2)
+      jpegBuf = jpegBuf.subarray(end + 2)
+      for (const res of viewers) {
+        try {
+          res.write(frame)
+          if (typeof res.flush === 'function') res.flush()
+        } catch {
+          viewers.delete(res)
+        }
+      }
+    }
+    if (jpegBuf.length > 4 * 1024 * 1024) {
+      jpegBuf = jpegBuf.subarray(-1024 * 1024)
     }
   })
 

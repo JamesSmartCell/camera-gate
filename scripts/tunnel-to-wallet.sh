@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
-# Reverse-tunnel camera-gate to the wallet VPS loopback.
-# wallet.percolate.one/cam-gate then reuses the existing Let's Encrypt cert.
-#
-# On the wallet host, server-https.js proxies /cam-gate -> http://127.0.0.1:8787
+# Only needed if the Pi 3 cannot reach / be reached by the wallet host on the LAN.
+# Same-LAN setups should set CAMERA_GATE_UPSTREAM=http://<pi3-lan-ip>:8787 instead.
 set -euo pipefail
 
 WALLET_SSH="${WALLET_SSH:-user@wallet.percolate.one}"

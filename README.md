@@ -7,11 +7,9 @@ There is no second public hostname.
 ```
 [webcam /dev/video0]
                  ↓  ffmpeg starts only while someone is watching
-         camera-gate :8787   (Pi 3)
-                 ↓
-     SSH reverse tunnel to wallet VPS 127.0.0.1:8787
-                 ↓
- <your gate site>/cam-gate/*   ← existing Let's Encrypt cert
+         camera-gate :8787   (Pi 3, LAN)
+                 ↓  http://192.168.50.x:8787
+         wallet /cam-gate/*  (Pi 5, existing HTTPS cert)
                  ↓
          Watch Live Feed (passkey + NFT)
 ```
@@ -28,21 +26,26 @@ https://<your gate site>/cam-gate/auth
 https://<your gate site>/cam-gate/live/<token>
 ```
 
-`server-https.js` proxies those to `CAMERA_GATE_UPSTREAM` (default `http://127.0.0.1:8787`). That loopback port is the Pi, reached with an SSH reverse tunnel — not a new cert.
+The browser only talks to the wallet origin (HTTPS). The **Pi 5** then fetches the Pi 3 on the LAN. No SSH, no extra certificate.
 
-On the Pi:
+On the Pi 3:
 
 ```bash
 cd camera-gate
 cp .env.example .env
 npm install
 npm start
-WALLET_SSH=you@<your gate site> ./scripts/tunnel-to-wallet.sh
 ```
 
-On the wallet host, keep `CAMERA_GATE_UPSTREAM=http://127.0.0.1:8787` and restart `server-https.js`. `GatewayPorts` is not required; the forward is loopback-only.
+On the Pi 5 (`wallet/.env`):
 
-You cannot point `https://<your gate site>` at `http://192.168.50.x` in an `<img>` — browsers block mixed content. Remote viewing has to come through the wallet origin.
+```bash
+CAMERA_GATE_UPSTREAM=http://192.168.50.<pi3>:8787
+```
+
+Restart `server-https.js` / Next after changing that. From the Pi 5, `curl http://192.168.50.<pi3>:8787/health` should succeed.
+
+You cannot point the **browser** at `http://192.168.50.x` from the HTTPS wallet page (mixed content). The Pi 5 proxy is what makes remote viewing work.
 
 ## LAN preview
 
