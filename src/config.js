@@ -19,6 +19,13 @@ function csvLower(value) {
   return csv(value).map((s) => s.toLowerCase())
 }
 
+function envFlag(raw, defaultOn) {
+  if (raw === undefined || raw === '') return defaultOn
+  const v = String(raw).trim().toLowerCase()
+  if (v === '0' || v === 'off' || v === 'false' || v === 'no') return false
+  return true
+}
+
 export const config = {
   port: Number(process.env.PORT || 8787),
   host: process.env.HOST || '0.0.0.0',
@@ -42,6 +49,8 @@ export const config = {
   cameraFps: Number(process.env.CAMERA_FPS || 15),
   cameraQuality: Number(process.env.CAMERA_QUALITY || 5),
   cameraEncode: process.env.CAMERA_ENCODE === '1',
+  cameraVflip: envFlag(process.env.CAMERA_VFLIP, true),
+  cameraHflip: envFlag(process.env.CAMERA_HFLIP, false),
   ffmpegBin: process.env.FFMPEG_BIN || 'ffmpeg',
   ffmpegIdleStopMs: Number(process.env.FFMPEG_IDLE_STOP_MS || 2000),
   hlsDir: process.env.HLS_DIR || '',

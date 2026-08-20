@@ -40,6 +40,11 @@ function stopFfmpeg() {
 function startFfmpeg() {
   if (ffmpeg) return
 
+  const filters = []
+  if (config.cameraVflip) filters.push('vflip')
+  if (config.cameraHflip) filters.push('hflip')
+  const mustEncode = config.cameraEncode || filters.length > 0
+
   const args = [
     '-hide_banner',
     '-loglevel',
@@ -58,7 +63,8 @@ function startFfmpeg() {
     String(config.cameraFps),
     '-i',
     config.cameraDevice,
-    ...(config.cameraEncode
+    ...(filters.length ? ['-vf', filters.join(',')] : []),
+    ...(mustEncode
       ? ['-c:v', 'mjpeg', '-q:v', String(config.cameraQuality)]
       : ['-c:v', 'copy']),
     '-f',
@@ -68,7 +74,12 @@ function startFfmpeg() {
     'pipe:1',
   ]
 
-  console.log('[ffmpeg] start', config.cameraDevice, config.cameraSize)
+  console.log(
+    '[ffmpeg] start',
+    config.cameraDevice,
+    config.cameraSize,
+    filters.length ? `vf=${filters.join(',')}` : 'no-flip'
+  )
   const child = spawn(config.ffmpegBin, args, {
     stdio: ['ignore', 'pipe', 'pipe'],
   })
