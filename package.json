@@ -1,0 +1,20 @@
+{
+  "name": "garage-camera-gate",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "NFT/passkey-gated live webcam proxy for the GarageDoorKey wallet",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@noble/curves": "^1.9.7",
+    "@noble/hashes": "^1.8.0",
+    "express": "^4.21.2",
+    "viem": "^2.55.18"
+  }
+}
